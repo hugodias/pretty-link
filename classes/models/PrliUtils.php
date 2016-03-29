@@ -26,45 +26,45 @@ class PrliUtils
     }
     return $new_data;
   }
-  
+
   function getTopValue($values_array)
   {
     rsort($values_array);
     return $values_array[0];
   }
-  
+
   function getFirstClickDate()
   {
     global $wpdb;
-  
+
     $clicks_table = $wpdb->prefix . "prli_clicks";
     $query = "SELECT created_at FROM $clicks_table ORDER BY created_at LIMIT 1";
     $first_click = $wpdb->get_var($query);
-  
+
     if(isset($first_click))
     {
       return strtotime($first_click);
     }
     else
-      return null; 
+      return null;
   }
-  
+
   function getMonthsArray()
   {
     global $wpdb;
     global $prli_click;
-  
-    $months = array(); 
+
+    $months = array();
     $year = date("Y");
     $month = date("m");
     $current_timestamp = time();
     $current_month_timestamp = mktime(0, 0, 0, date("m", $current_timestamp), 1, date("Y", $current_timestamp));
-  
+
     $clicks_table = $prli_click->tableName();
     $first_click = $wpdb->get_var("SELECT created_at FROM $clicks_table ORDER BY created_at LIMIT 1;");
     $first_timestamp = ((empty($first_click))?$current_timestamp:strtotime($first_click));
     $first_date = mktime(0, 0, 0, date("m", $first_timestamp), 1, date("Y", $first_timestamp));
-  
+
     while($current_month_timestamp >= $first_date)
     {
       $months[] = $current_month_timestamp;
@@ -75,13 +75,13 @@ class PrliUtils
     }
     return $months;
   }
-  
+
   // For Pagination
   function getLastRecordNum($r_count,$current_p,$p_size)
   {
     return (($r_count < ($current_p * $p_size))?$r_count:($current_p * $p_size));
   }
-  
+
   // For Pagination
   function getFirstRecordNum($r_count,$current_p,$p_size)
   {
@@ -90,61 +90,61 @@ class PrliUtils
     else
       return ($this->getLastRecordNum($r_count,($current_p - 1),$p_size) + 1);
   }
-  
+
   public static function slugIsAvailable( $full_slug, $id = '' )
   {
     global $wpdb, $prli_blogurl, $prli_link;
-  
+
     // We don't care about anything after the slash for now because we don't want
     // to have to worry about comparing against every imaginable combination in WordPress
     $slug_components = explode('/',$full_slug);
     $slug = $slug_components[0];
-  
+
     // Check slug uniqueness against posts, pages and categories
     $postname = $wpdb->get_var($wpdb->prepare("SELECT post_name FROM {$wpdb->posts} WHERE post_name=%s LIMIT 1",$slug));
     $taxonomy = $wpdb->get_var($wpdb->prepare("SELECT taxonomy FROM {$wpdb->term_taxonomy} WHERE taxonomy=%s LIMIT 1",$slug));
-  
+
     // If anything was returned for these two calls then the slug has been taken
     if( $postname or $taxonomy )
       return false;
-  
+
     // Check slug against files on the root wordpress install
-    $root_dir = opendir(ABSPATH); 
-  
+    $root_dir = opendir(ABSPATH);
+
     while (($file = readdir($root_dir)) !== false) {
       $haystack = strtolower($file);
       if($haystack == $slug)
         return false;
     }
-  
+
     // Check slug against other slugs in the prli links database.
     // We'll use the full_slug here because its easier to guarantee uniqueness.
     if(!is_null($id) and !empty($id) and is_numeric($id))
       $query = $wpdb->prepare("SELECT slug FROM {$prli_link->table_name} WHERE slug=%s AND id <> %d", $full_slug, $id);
     else
       $query = $wpdb->prepare("SELECT slug FROM {$prli_link->table_name} WHERE slug=%s", $full_slug);
-  
+
     $link_slug = $wpdb->get_var($query);
-  
+
     if( $link_slug == $full_slug )
       return false;
-  
+
     $pre_slug_slug = PrliUtils::get_permalink_pre_slug_uri(true,true);
 
     if($full_slug == $pre_slug_slug)
       return false;
 
     // TODO: Check permalink structure to avoid the ability of creating a year or something as a slug
-  
+
     return true;
   }
-  
+
   function &php_get_browsercap_ini()
   {
     // Since it's a fairly expensive proposition to load the ini file
     // let's make sure we only do it once
     static $browsecap_ini;
-    
+
     if(!isset($browsecap_ini))
     {
       if( version_compare(PHP_VERSION, '5.3.0') >= 0 )
@@ -152,10 +152,10 @@ class PrliUtils
       else
         $browsecap_ini = parse_ini_file( PRLI_PATH . "/includes/php/php_browsecap.ini", true );
     }
-    
+
     return $browsecap_ini;
   }
-  
+
   /* Needed because we don't know if the target uesr will have a browsercap file installed
      on their server ... particularly in a shared hosting environment this is difficult
   */
@@ -194,31 +194,39 @@ class PrliUtils
               }
             }
           }
-      
+
           break;
         }
       }
     }
-  
+
     return $hu;
   }
-  
+
   // This is where the magic happens!
   function track_link($slug,$values)
   {
     global $wpdb, $prli_click, $prli_options, $prli_link, $prli_update;
-  
+
     $query = "SELECT * FROM ".$prli_link->table_name." WHERE slug='$slug' LIMIT 1";
     $pretty_link = $wpdb->get_row($query);
     $pretty_link_target = apply_filters( 'prli_target_url', array( 'url' => $pretty_link->url, 'link_id' => $pretty_link->id, 'redirect_type' => $pretty_link->redirect_type ) );
     $pretty_link_url = $pretty_link_target['url'];
     $track_me = apply_filters('prli_track_link', $pretty_link->track_me);
-    
+
     if(isset($track_me) and !empty($track_me) and $track_me)
     {
       $first_click = 0;
-      
-      $click_ip =         isset($_SERVER['REMOTE_ADDR'])?$_SERVER['REMOTE_ADDR']:'';
+
+      if(!empty($_SERVER['HTTP_X_FORWARDED_FOR']))
+      {
+        $click_ip = $_SERVER['HTTP_X_FORWARDED_FOR'];
+      } elseif(!empty($_SERVER['REMOTE_ADDR'])) {
+        $click_ip = $_SERVER['REMOTE_ADDR'];
+      } else {
+        $click_ip = '';
+      }
+
       $click_referer =    isset($_SERVER['HTTP_REFERER'])?$_SERVER['HTTP_REFERER']:'';
       $click_uri =        isset($_SERVER['REQUEST_URI'])?$_SERVER['REQUEST_URI']:'';
       $click_user_agent = isset($_SERVER['HTTP_USER_AGENT'])?$_SERVER['HTTP_USER_AGENT']:'';
@@ -228,13 +236,13 @@ class PrliUtils
 
       //Used for unique click tracking
       $cookie_expire_time = time()+60*60*24*30; // Expire in 30 days
-      
+
       if(!isset($_COOKIE[$cookie_name]))
       {
         setcookie($cookie_name,$slug,$cookie_expire_time,'/');
         $first_click = 1;
       }
-     
+
       if(isset($prli_options->extended_tracking) and $prli_options->extended_tracking == 'extended')
       {
         $click_browser = $this->php_get_browser();
@@ -243,7 +251,7 @@ class PrliUtils
         $visitor_cookie = 'prli_visitor';
         //Used for visitor activity
         $visitor_cookie_expire_time = time()+60*60*24*365; // Expire in 1 year
-        
+
         // Retrieve / Generate visitor id
         if(!isset($_COOKIE[$visitor_cookie]))
         {
@@ -259,7 +267,7 @@ class PrliUtils
         $click_host = '';
         $visitor_uid = '';
       }
-      
+
       if($prli_options->extended_tracking != 'count')
       {
         //Record Click in DB
@@ -276,9 +284,9 @@ class PrliUtils
                                               $click_host,
                                               $first_click,
                                               $this->this_is_a_robot($click_user_agent,$click_browser));
-        
+
         $results = $wpdb->query( $insert );
-        
+
         do_action('prli_record_click',array('link_id' => $pretty_link->id, 'click_id' => $wpdb->insert_id, 'url' => $pretty_link_url));
       }
       else
@@ -300,22 +308,22 @@ class PrliUtils
         }
       }
     }
-  
+
     $param_string = '';
-    if( isset($pretty_link->param_forwarding) and 
-        ( $pretty_link->param_forwarding == 'custom' or 
+    if( isset($pretty_link->param_forwarding) and
+        ( $pretty_link->param_forwarding == 'custom' or
           $pretty_link->param_forwarding == 'on') and
         isset( $values ) and count( $values ) >= 1 ) {
       $parray = explode( '?', $_SERVER['REQUEST_URI'] );
-      
+
       if(isset($parray[1]))
         $param_string = (preg_match("#\?#", $pretty_link_url)?"&":"?") . $parray[1];
 
-      $param_string = preg_replace( array("#%5B#i","#%5D#i"), array("[","]"), $param_string ); 
+      $param_string = preg_replace( array("#%5B#i","#%5D#i"), array("[","]"), $param_string );
 
       $param_string = apply_filters('prli_redirect_params', $param_string);
     }
-    
+
     if(isset($pretty_link->nofollow) and $pretty_link->nofollow)
       header("X-Robots-Tag: noindex, nofollow", true);
 
@@ -345,11 +353,11 @@ class PrliUtils
     $param_struct = preg_replace('#%.*?%#','(.*?)',$param_struct);
     return preg_replace('#\(\.\*\?\)$#','(.*)',$param_struct); // replace the last one with a greedy operator
   }
-  
+
   function get_custom_forwarding_params($param_struct, $start_index = 1)
   {
     preg_match_all('#%(.*?)%#', $param_struct, $matches);
-  
+
     $param_string = '';
     $match_index = $start_index;
     for($i = 0; $i < count($matches[1]); $i++)
@@ -358,27 +366,27 @@ class PrliUtils
         $param_string .= "?";
       else
         $param_string .= "&";
-  
+
       $param_string .= $matches[1][$i] . "=$$match_index";
       $match_index++;
     }
-  
+
     return $param_string;
   }
-  
+
   function decode_custom_param_str($param_struct, $uri_string)
   {
     // Get the structure matches (param names)
     preg_match_all('#%(.*?)%#', $param_struct, $struct_matches);
-  
+
     // Get the uri matches (param values)
     $match_str = '#'.$this->get_custom_forwarding_rule($param_struct).'#';
     preg_match($match_str, $uri_string, $uri_matches);
-  
+
     $param_array = array();
     for($i = 0; $i < count($struct_matches[1]); $i++)
       $param_array[$struct_matches[1][$i]] = $uri_matches[$i+1];
-  
+
     return $param_array;
   }
 
@@ -635,7 +643,7 @@ class PrliUtils
   }
 
   function prli_decode_json_unicode($val)
-  { 
+  {
     $val = preg_replace_callback("/\\\u([0-9a-fA-F]{4})/",
                                  create_function(
                                    '$matches',
@@ -659,10 +667,10 @@ class PrliUtils
     }
     else
       $start_timestamp = time()-60*60*24*(int)$min_date;
-  
+
     return $start_timestamp;
   }
-  
+
   // Get the timestamp of the end date
   function get_end_date($values)
   {
@@ -673,7 +681,7 @@ class PrliUtils
     }
     else
       $end_timestamp = time();
-  
+
     return $end_timestamp;
   }
 
@@ -688,12 +696,12 @@ class PrliUtils
 
     // unlink pro directory
     $this->delete_dir($prlipro_path);
-    
+
     delete_option( 'prlipro_activated' );
     delete_option( 'prlipro_username' );
     delete_option( 'prlipro_password' );
     delete_option( 'prlipro-credentials' );
-    
+
     // Yah- I just leave the pro database tables & data hanging
     // around in case you want to re-install it at some point
   }
@@ -729,7 +737,7 @@ class PrliUtils
       /* Create/Upgrade Tweets Table */
       $sql = "CREATE TABLE {$tweets_table} (
                 id int(11) NOT NULL auto_increment,
-                twid varchar(255) NOT NULL, 
+                twid varchar(255) NOT NULL,
                 tw_text varchar(255) default NULL,
                 tw_to_user_id varchar(255) default NULL,
                 tw_from_user varchar(255) default NULL,
@@ -750,7 +758,7 @@ class PrliUtils
                 KEY tw_profile_image_url (tw_profile_image_url),
                 KEY twid (twid)
               ) {$charset_collate};";
-      
+
       dbDelta($sql);
 
       /* Create/Upgrade Keywords Table */
@@ -763,7 +771,7 @@ class PrliUtils
                 KEY link_id (link_id),
                 KEY text (text)
               ) {$charset_collate};";
-      
+
       dbDelta($sql);
 
       /* Create/Upgrade Reports Table */
@@ -776,7 +784,7 @@ class PrliUtils
                 KEY goal_link_id (goal_link_id),
                 KEY name (name)
               ) {$charset_collate};";
-      
+
       dbDelta($sql);
 
       /* Create/Upgrade Reports Table */
@@ -789,7 +797,7 @@ class PrliUtils
                 KEY report_id (report_id),
                 KEY link_id (link_id)
               ) {$charset_collate};";
-      
+
       dbDelta($sql);
 
       /* Create/Upgrade Link Rotations Table */
@@ -806,7 +814,7 @@ class PrliUtils
                 KEY weight (weight),
                 KEY r_index (r_index)
               ) {$charset_collate};";
-      
+
       dbDelta($sql);
 
       /* Create/Upgrade Clicks / Rotations Table */
@@ -819,13 +827,13 @@ class PrliUtils
                 KEY click_id (click_id),
                 KEY link_id (link_id)
               ) {$charset_collate};";
-      
+
       dbDelta($sql);
     }
 
     if($old_pro_db_version < 3) {
 	  global $prli_keyword;
-	
+
       // Reset the whole keyword cache for good
 	  if(isset($prli_keyword) and is_a($prli_keyword, 'PrliKeyword'))
         $prli_keyword->deleteContentCache();
@@ -837,23 +845,23 @@ class PrliUtils
   }
 
   // be careful with this one -- I use it to forceably reinstall pretty link pro
-  function delete_dir($dir) 
+  function delete_dir($dir)
   {
     if (!file_exists($dir))
       return true;
 
     if (!is_dir($dir))
       return unlink($dir);
-  
-    foreach (scandir($dir) as $item) 
+
+    foreach (scandir($dir) as $item)
     {
       if ($item == '.' || $item == '..')
         continue;
-  
+
       if (!$this->delete_dir($dir.DIRECTORY_SEPARATOR.$item))
         return false;
     }
-  
+
     return rmdir($dir);
   }
 
@@ -917,7 +925,7 @@ class PrliUtils
 
     // Modify the tables so they're UTF-8
     if($db_version and $db_version < 3)
-    { 
+    {
       $charset_collate = '';
       if( $wpdb->has_cap( 'collation' ) )
       {
@@ -947,7 +955,7 @@ class PrliUtils
         }
       }
     }
-    
+
     // Upgrade the twitter hide badges on pages / posts for pro users
     if($db_version and $db_version < 7)
     {
@@ -967,7 +975,7 @@ class PrliUtils
         }
       }
     }
-    
+
     if($db_version and $db_version < 8)
     {
       // Install / Upgrade Pretty Link Pro
@@ -980,7 +988,7 @@ class PrliUtils
                        'password' => $prlipro_password);
         update_option('prlipro-credentials', $creds);
       }
-    } 
+    }
 
     // Hiding pretty link custom fields
     if($db_version and $db_version < 10)
@@ -1085,7 +1093,7 @@ class PrliUtils
     // If we're doing extended tracking and the Browser type
     // was unidentifiable then it's most likely a bot
     if( isset($prli_options->extended_tracking) and
-        $prli_options->extended_tracking == 'extended' and 
+        $prli_options->extended_tracking == 'extended' and
         empty($btype) )
       return 1;
 
@@ -1133,18 +1141,18 @@ class PrliUtils
     else
       return "{$pre_slug_uri}|/";
   }
-    
+
   function rewriting_on()
   {
     $permalink_structure = get_option('permalink_structure');
-  
+
     return ($permalink_structure and !empty($permalink_structure));
   }
 
   public static function get_prli_post_meta($post_id, $key, $single=false)
   {
     if( isset($post_id) and !empty($post_id) and
-        $post_id and is_numeric($post_id) ) 
+        $post_id and is_numeric($post_id) )
       return get_post_meta($post_id, $key, $single);
     else
       return false;
@@ -1153,7 +1161,7 @@ class PrliUtils
   public static function update_prli_post_meta($post_id, $meta_key, $meta_value)
   {
     if( isset($post_id) and !empty($post_id) and
-        $post_id and is_numeric($post_id) ) 
+        $post_id and is_numeric($post_id) )
       return update_post_meta($post_id, $meta_key, $meta_value);
     else
       return false;
@@ -1162,7 +1170,7 @@ class PrliUtils
   function delete_prli_post_meta($post_id, $key)
   {
     if( isset($post_id) and !empty($post_id) and
-        $post_id and is_numeric($post_id) ) 
+        $post_id and is_numeric($post_id) )
       return delete_post_meta($post_id, $key);
     else
       return false;
@@ -1182,16 +1190,16 @@ class PrliUtils
       $wpdb->query($query);
     }
   }
-  
+
   public static function gen_random_string($length = 4)
   {
     $characters = '0123456789abcdefghijklmnopqrstuvwxyz';
     $string = '';
     $max_index = strlen($characters) - 1;
-    
+
     for($p = 0; $p < $length; $p++)
       $string .= $characters[mt_rand(0, $max_index)];
-    
+
     return $string;
   }
 
